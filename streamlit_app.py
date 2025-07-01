@@ -18,13 +18,12 @@ receiver_emails = st.secrets["email"]["receiver_emails"]  # Liste des emails sé
 
 # Configuration of the page
 st.set_page_config(
-    page_title="IKitchen Sales Report Generator",
-    page_icon="🍽️",
+    page_title="IKitchen Daily Sales Report Generator",
     layout="wide"
 )
 
 # Application title
-st.title("🍽️ IKitchen Sales Report Generator")
+st.title("IKitchen Sales Report Generator")
 
 # Helper functions from your original code
 def clean_amount(amount_str):
@@ -98,15 +97,16 @@ def format_report_new_style(report_data, metadata_line):
     
     # Build report lines
     report_lines = []
-    report_lines.append(f"DATE : {formatted_date};")
+    report_lines.append(f"DATE;{formatted_date}")
     
     # Meal periods
     lunch_amount = period_totals.get('Lunch', 0.0)
     dinner_amount = period_totals.get('Dinner', 0.0)
     breakfast_amount = period_totals.get('Breakfast', 0.0)
     
-    report_lines.append(f"Lunch sales (12:30pm to 5:00pm);{lunch_amount:,.2f}")
-    report_lines.append(f"Dinner sales (5:00pm onwards);{dinner_amount:,.2f}")
+    report_lines.append(f"Lunch sales;{lunch_amount:,.2f}")
+    report_lines.append(f"Dinner sales;{dinner_amount:,.2f}")
+    report_lines.append(f"Breakfast (weekend);{breakfast_amount:,.2f}")
     
     # Order types - standardize names
     delivery_amount = 0.0
@@ -124,13 +124,9 @@ def format_report_new_style(report_data, metadata_line):
         else:
             # Default to eat in if not clear
             eatin_amount += amount
-    
-    report_lines.append(f"Delivery;{delivery_amount:,.2f}")
-    report_lines.append(f"Eat in;{eatin_amount:,.2f}")
-    report_lines.append(f"Take away;{takeaway_amount:,.2f}")
-    
-    # Weekend breakfast
-    report_lines.append(f"Weekend (breakfast total amount sales until 12:30pm);{breakfast_amount:,.2f}")
+    report_lines.append(f"Total Eat in;{eatin_amount:,.2f}")
+    report_lines.append(f"Total Delivery;{delivery_amount:,.2f}")
+    report_lines.append(f"Total Take away;{takeaway_amount:,.2f}")
     
     # Total
     report_lines.append(f"TOTAL SALES;{total_sales:,.2f}")
@@ -240,13 +236,14 @@ def send_email_to_multiple_recipients(sender_email, sender_password, receiver_em
 
 # File uploader with automatic processing
 uploaded_file = st.file_uploader(
-    "",
+    "Upload Sales Summary CSV File",
     type=['csv'],
     help="""**Expected CSV Format**: 
 - Line 1: Headers or title
 - Line 2: Metadata with dates
 - Line 3: Empty or headers
-- Line 4+: Sales data with columns including 'Status', 'Amount', 'Sale date', 'Ordertype name'"""
+- Line 4+: Sales data with columns including 'Status', 'Amount', 'Sale date', 'Ordertype name'""",
+label_visibility="hidden"
 )
 
 if uploaded_file is not None:
@@ -321,5 +318,5 @@ IKitchen Sales Report System"""
         st.error(f"❌ Error processing file: {str(e)}")
 
 else:
-    st.info("👆 Please upload your IKitchen sales CSV file - processing and email sending will be automatic!")
+    st.info("From the ServQuick Console, go to 'Reports' then 'Transaction Summary' then 'Sales summary by receipt'. Select the desired timeframe + 1 extra day. Export as CSV and upload the file - processing and email sending will be automatic!")
 
