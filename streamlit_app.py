@@ -87,54 +87,60 @@ def extract_date_from_metadata(metadata_line):
         return datetime.now().strftime('%d/%m/%Y')
 
 def format_report_new_style(report_data, metadata_line):
-    """Format report in the new requested style"""
-    period_totals = report_data['period_totals']
-    ordertype_totals = report_data['ordertype_totals']
-    total_sales = report_data['total_sales']
+    """Format report in the new requested style with split columns for Lahore and Santorini"""
+    lahore_period_totals = report_data['lahore_period_totals']
+    lahore_ordertype_totals = report_data['lahore_ordertype_totals']
+    lahore_total_sales = report_data['lahore_total_sales']
+    santorini_period_totals = report_data['santorini_period_totals']
+    santorini_ordertype_totals = report_data['santorini_ordertype_totals']
+    santorini_total_sales = report_data['santorini_total_sales']
     
     # Extract formatted date
     formatted_date = extract_date_from_metadata(metadata_line)
     
     # Build report lines
     report_lines = []
-    report_lines.append(f"DATE;{formatted_date}")
+    report_lines.append(f"{formatted_date};;")
+    report_lines.append("Location;Lahore;Santorini")
+    
+    # Helper to get value or 0
+    def getv(d, k):
+        return d.get(k, 0.0)
     
     # Meal periods
-    lunch_amount = period_totals.get('Lunch', 0.0)
-    dinner_amount = period_totals.get('Dinner', 0.0)
-    breakfast_amount = period_totals.get('Breakfast', 0.0)
-    
-    report_lines.append(f"Lunch sales;{lunch_amount:,.2f}")
-    report_lines.append(f"Dinner sales;{dinner_amount:,.2f}")
-    report_lines.append(f"Breakfast (weekend);{breakfast_amount:,.2f}")
+    report_lines.append(f"Lunch sales;{getv(lahore_period_totals, 'Lunch'):,.2f};{getv(santorini_period_totals, 'Lunch'):,.2f}")
+    report_lines.append(f"Dinner sales;{getv(lahore_period_totals, 'Dinner'):,.2f};{getv(santorini_period_totals, 'Dinner'):,.2f}")
+    report_lines.append(f"Breakfast (weekend);{getv(lahore_period_totals, 'Breakfast'):,.2f};{getv(santorini_period_totals, 'Breakfast'):,.2f}")
     
     # Order types - standardize names
-    delivery_amount = 0.0
-    eatin_amount = 0.0
-    takeaway_amount = 0.0
+    def ordertype_sums(ordertype_totals):
+        delivery = eatin = takeaway = 0.0
+        for order_type, amount in ordertype_totals.items():
+            order_type_lower = order_type.lower()
+            if 'delivery' in order_type_lower:
+                delivery += amount
+            elif 'eat in' in order_type_lower:
+                eatin += amount
+            elif 'take away' in order_type_lower:
+                takeaway += amount
+            else:
+                eatin += amount
+        return eatin, delivery, takeaway
     
-    for order_type, amount in ordertype_totals.items():
-        order_type_lower = order_type.lower()
-        if 'delivery' in order_type_lower :
-            delivery_amount += amount
-        elif 'eat in' in order_type_lower :
-            eatin_amount += amount
-        elif 'take away' in order_type_lower :
-            takeaway_amount += amount
-        else:
-            # Default to eat in if not clear
-            eatin_amount += amount
-    report_lines.append(f"Total Eat in;{eatin_amount:,.2f}")
-    report_lines.append(f"Total Delivery;{delivery_amount:,.2f}")
-    report_lines.append(f"Total Take away;{takeaway_amount:,.2f}")
+    lahore_eatin, lahore_delivery, lahore_takeaway = ordertype_sums(lahore_ordertype_totals)
+    santorini_eatin, santorini_delivery, santorini_takeaway = ordertype_sums(santorini_ordertype_totals)
+    
+    report_lines.append(f"Total Eat in;{lahore_eatin:,.2f};{santorini_eatin:,.2f}")
+    report_lines.append(f"Total Delivery;{lahore_delivery:,.2f};{santorini_delivery:,.2f}")
+    report_lines.append(f"Total Take away;{lahore_takeaway:,.2f};{santorini_takeaway:,.2f}")
     
     # Total
-    report_lines.append(f"TOTAL SALES;{total_sales:,.2f}")
+    report_lines.append(f"TOTAL SALES;{lahore_total_sales:,.2f};{santorini_total_sales:,.2f}")
     
     return '\n'.join(report_lines)
 
 def process_ikitchen_data(uploaded_file):
-    """Process the iKitchen CSV file and generate report"""
+    """Process the iKitchen CSV file and generate report split by location"""
     try:
         # Read the file content
         content = uploaded_file.getvalue().decode('utf-8')
@@ -169,24 +175,34 @@ def process_ikitchen_data(uploaded_file):
         
         # Process time and meal periods
         valid_sales['Sale_time'] = valid_sales['Sale date'].apply(parse_time)
-        #valid_sales['Is_weekend'] = valid_sales['Sale date'].apply(is_weekend)
         valid_sales['Meal_period'] = valid_sales.apply(
             lambda row: categorize_meal_period(row['Sale_time']),
             axis=1
         )
         
-        # Generate report
-        period_totals = valid_sales.groupby('Meal_period')['Amount_clean'].sum()
-        ordertype_totals = valid_sales.groupby('Ordertype name')['Amount_clean'].sum()
-        total_sales = valid_sales['Amount_clean'].sum()
+        # Split by location
+        lahore_sales = valid_sales[valid_sales['Register name'] != 'CO-50010']
+        santorini_sales = valid_sales[valid_sales['Register name'] == 'CO-50010']
+        
+        def get_metrics(sales_df):
+            period_totals = sales_df.groupby('Meal_period')['Amount_clean'].sum()
+            ordertype_totals = sales_df.groupby('Ordertype name')['Amount_clean'].sum()
+            total_sales = sales_df['Amount_clean'].sum()
+            return period_totals, ordertype_totals, total_sales
+        
+        lahore_period_totals, lahore_ordertype_totals, lahore_total_sales = get_metrics(lahore_sales)
+        santorini_period_totals, santorini_ordertype_totals, santorini_total_sales = get_metrics(santorini_sales)
         
         report_data = {
             'metadata_line': metadata_line,
             'sales_date': sales_date,
             'valid_sales': valid_sales,
-            'period_totals': period_totals,
-            'ordertype_totals': ordertype_totals,
-            'total_sales': total_sales
+            'lahore_period_totals': lahore_period_totals,
+            'lahore_ordertype_totals': lahore_ordertype_totals,
+            'lahore_total_sales': lahore_total_sales,
+            'santorini_period_totals': santorini_period_totals,
+            'santorini_ordertype_totals': santorini_ordertype_totals,
+            'santorini_total_sales': santorini_total_sales
         }
         
         # Format report in new style
@@ -278,7 +294,7 @@ if uploaded_file is not None:
 
 Report Summary:
 - Date: {formatted_date}
-- Total Sales: {report_data['total_sales']:,.2f}
+- Total Sales: {report_data['lahore_total_sales']:,.2f} (Lahore), {report_data['santorini_total_sales']:,.2f} (Santorini)
 
 Best regards,
 IKitchen Sales Report System"""
@@ -305,14 +321,6 @@ IKitchen Sales Report System"""
                 except Exception as e:
                     st.error(f"❌ Error with email configuration: {str(e)}")
                 
-                # # Download option
-                # st.subheader("💾 Download Report")
-                # st.download_button(
-                #     label="📥 Download CSV Report",
-                #     data=report_data['final_report'],
-                #     file_name=f"sales_report_{report_data['sales_date']}.csv",
-                #     mime="text/csv"
-                # )
     
     except Exception as e:
         st.error(f"❌ Error processing file: {str(e)}")
