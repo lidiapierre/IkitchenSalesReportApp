@@ -114,7 +114,7 @@ def format_report_new_style(report_data: Dict[str, Any], metadata_line: str) -> 
 
 
 def process_ikitchen_data(uploaded_file) -> Tuple[Dict[str, Any], pd.DataFrame, str]:
-    """Process the iKitchen CSV and generate report using receipt-level totals (items + taxes)."""
+    """Process the iKitchen CSV and generate report using receipt-level totals (items + taxes + service charge)."""
     try:
         content = uploaded_file.getvalue().decode('utf-8')
         lines = content.split('\n')
@@ -128,50 +128,45 @@ def process_ikitchen_data(uploaded_file) -> Tuple[Dict[str, Any], pd.DataFrame, 
         dates_found = re.findall(date_pattern, metadata_line)
         sales_date = str(dates_found[0]) if dates_found else ""
 
-        # Try reading from line 4 like before, but fall back to auto-detect header row
         try:
             csv_content = '\n'.join(lines[3:])
             raw_df = pd.read_csv(io.StringIO(csv_content))
         except Exception:
             raw_df = pd.read_csv(io.StringIO(content))
 
-        # Normalize column names
         raw_df.columns = raw_df.columns.str.strip()
 
-        # ---- NEW: helper to clean numeric-with-commas safely ----
         def clean_num(s):
             return pd.to_numeric(
                 pd.Series(s, dtype="object").astype(str).str.replace(',', '', regex=False),
                 errors='coerce'
             ).fillna(0.0)
 
-        # ---- Items (pre-tax) ----
+        # Items
         if 'Item amount' not in raw_df.columns:
             return None, None, "Expected 'Item amount' column not found."
-
         df = raw_df.copy()
         df['Amount_clean'] = clean_num(df['Item amount'])
 
-        # ---- Taxes (line-level) ----
-        # Preferred single-column layout:
+        # Taxes
         if 'Tax amount' in df.columns:
             df['Tax_clean'] = clean_num(df['Tax amount'])
         else:
-            # Fallback: sum of SGST/CGST/IGST/CESS if present
             tax_parts = []
             for col in ['SGST amount', 'CGST amount', 'IGST amount', 'CESS amount', 'GST amount']:
                 if col in df.columns:
                     tax_parts.append(clean_num(df[col]))
-            if tax_parts:
-                df['Tax_clean'] = sum(tax_parts)
-            else:
-                df['Tax_clean'] = 0.0  # no tax columns found
+            df['Tax_clean'] = sum(tax_parts) if tax_parts else 0.0
 
-        # Optional status filter if present
+        # Service charge
+        if 'Service charge amount' in df.columns:
+            df['Service_charge_clean'] = clean_num(df['Service charge amount'])
+        else:
+            df['Service_charge_clean'] = 0.0
+
         if 'Status' in df.columns:
             df = df[df['Status'].astype(str).str.strip().str.lower() == 'ordered']
 
-        # Filter to target report day X and spillover until 02:00 on X+1
         if 'Sale date' in df.columns:
             df['Sale_dt'] = pd.to_datetime(df['Sale date'], errors='coerce')
             report_date_obj = None
@@ -188,31 +183,29 @@ def process_ikitchen_data(uploaded_file) -> Tuple[Dict[str, Any], pd.DataFrame, 
                 end_dt = datetime.combine(report_date_obj + timedelta(days=1), time(2, 0))
                 df = df[(df['Sale_dt'] >= start_dt) & (df['Sale_dt'] <= end_dt)]
 
-        # Build receipt-level table
         if 'Receipt no' not in df.columns:
             return None, None, "Missing 'Receipt no' column."
 
-        # We keep both items and taxes, plus combined order total.
         agg_spec = {
             'Amount_clean': 'sum',
             'Tax_clean': 'sum',
+            'Service_charge_clean': 'sum'
         }
         take_first_cols = [c for c in ['Ordertype name', 'Register name', 'Sale date'] if c in df.columns]
         grouped = df.groupby('Receipt no', as_index=False).agg({**agg_spec, **{c: 'first' for c in take_first_cols}})
         grouped = grouped.rename(columns={
             'Amount_clean': 'Order_total_items',
-            'Tax_clean': 'Tax_total'
+            'Tax_clean': 'Tax_total',
+            'Service_charge_clean': 'Service_charge_total'
         })
-        grouped['Order_total'] = grouped['Order_total_items'] + grouped['Tax_total']
+        grouped['Order_total'] = grouped['Order_total_items'] + grouped['Tax_total'] + grouped['Service_charge_total']
 
-        # Compute time + meal period
         if 'Sale date' in grouped.columns:
             grouped['Sale_time'] = grouped['Sale date'].apply(parse_time_flexible)
         else:
             grouped['Sale_time'] = None
         grouped['Meal_period'] = grouped['Sale_time'].apply(categorize_meal_period)
 
-        # Split by location
         if 'Register name' in grouped.columns:
             lahore_mask = grouped['Register name'] != 'CO-50010'
             santorini_mask = grouped['Register name'] == 'CO-50010'
@@ -224,7 +217,6 @@ def process_ikitchen_data(uploaded_file) -> Tuple[Dict[str, Any], pd.DataFrame, 
         santorini_orders = grouped[santorini_mask]
 
         def get_metrics(orders_df: pd.DataFrame):
-            # By default compute totals on the combined Order_total (items + tax)
             period_totals = orders_df.groupby('Meal_period')['Order_total'].sum().to_dict() if not orders_df.empty else {}
             ordertype_col = 'Ordertype name' if 'Ordertype name' in orders_df.columns else None
             if ordertype_col:
@@ -240,7 +232,7 @@ def process_ikitchen_data(uploaded_file) -> Tuple[Dict[str, Any], pd.DataFrame, 
         report_data = {
             'metadata_line': metadata_line,
             'sales_date': sales_date,
-            'valid_sales': grouped,  # now includes Order_total_items, Tax_total, Order_total
+            'valid_sales': grouped,
             'lahore_period_totals': lahore_period_totals,
             'lahore_ordertype_totals': lahore_ordertype_totals,
             'lahore_total_sales': lahore_total_sales,
