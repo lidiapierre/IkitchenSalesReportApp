@@ -28,8 +28,8 @@ if SUPABASE_URL and SUPABASE_KEY:
 	supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 PROD_TABLES = {
-	"customers": "customers",
-	"orders": "orders"
+	"customers": "customers_testing",
+	"orders": "orders_testing"
 }
 
 
