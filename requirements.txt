@@ -1,3 +1,7 @@
 streamlit
 pandas
 requests
+pydantic
+pyyaml
+supabase
+python-dotenv

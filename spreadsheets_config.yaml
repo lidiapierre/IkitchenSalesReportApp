@@ -1,0 +1,11 @@
+servquick_columns:
+  - Receipt no
+  - Item quantity
+  - Item amount
+  - Item name
+  - Customer mobile
+  - Customer email
+  - Customer address
+  - Customer name
+  - Sale date
+  - Ordertype name
