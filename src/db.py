@@ -28,8 +28,8 @@ if SUPABASE_URL and SUPABASE_KEY:
 	supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 PROD_TABLES = {
-	"customers": "customers_testing",
-	"orders": "orders_testing"
+	"customers": "customers",
+	"orders": "orders"
 }
 
 
@@ -40,7 +40,7 @@ def get_table(name: str):
 
 
 def _ensure_client():
-	if supabase is None:
+	if not SUPABASE_URL or not SUPABASE_KEY or not supabase:
 		raise ValueError("Supabase client is not configured. Set SUPABASE_URL and SUPABASE_KEY env vars or provide them in Streamlit secrets under 'supabase'.")
 
 
