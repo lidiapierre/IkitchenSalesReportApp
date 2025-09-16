@@ -4,7 +4,7 @@ import uuid
 from typing import List, Dict
 from src.models import Customer, Order, OrderItem
 
-from src.db import supabase, get_table, BATCH_SIZE, batch_insert_orders, get_existing_receipts_ids, get_existing_customers, refresh_views_analytics
+from src.db import supabase, get_table, BATCH_SIZE, batch_insert_orders, get_existing_receipts_ids, get_existing_customers
 from src.utils import standardize_phone_number, get_spreadsheet_data, validate_spreadsheet_columns
 
 
@@ -187,8 +187,6 @@ def process_pos_data(file_path, logger=None):
         orders.append(order)
 
     batch_insert_orders(orders)
-
-    refresh_views_analytics()
 
     if logger:
         logger(f"Processing complete. {len(final_data)} receipts processed.")

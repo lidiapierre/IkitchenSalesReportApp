@@ -79,8 +79,3 @@ def batch_insert_orders(orders: List[Order]):
 	for i in range(0, len(orders), BATCH_SIZE):
 		batch = [order.model_dump() for order in orders[i:i + BATCH_SIZE]]
 		supabase.table(get_table("orders")).insert(batch).execute()
-
-
-def refresh_views_analytics():
-	_ensure_client()
-	supabase.rpc("refresh_all_views").execute()
